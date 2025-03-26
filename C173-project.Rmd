@@ -1,0 +1,725 @@
+---
+title: "C173 Project"
+author: "Stephen Fujiwara"
+output:
+  pdf_document: default
+date: "2025-03-01"
+---
+
+## EDA (Exploratory Data Analysis)
+
+### Variable Description
+
+```{r}
+# read data
+data <- read.csv("data.csv")
+head(data)
+```
+
+The dataset is a dataset from the Los Angeles county database that contains census data from each of the zip codes that *fall at least partially* within Los Angeles county boundaries, for the year 2010.
+
+Each observation contains the zip code, the coordinates corresponding to the centroid of the zip code's area, as well as 6 variables.
+
+These 6 variables are:
+
+1.  population - The total number of people living in a given zip code.
+
+2.  median_age - The median age of the individuals living in a given zip code.
+
+3.  percent_male - The percentage of the population that is male for a given a zip code.
+
+4.  percent_female - The percentage of the population that is female for a given zip code.
+
+5.  total_households - The total number of households located within a given zip code
+
+6.  avg_household_size - The average number of individuals living in a household located within a given zip code.
+
+### Descriptive Statistics
+
+```{r}
+# descriptive statistics
+variables <- c("population", "median_age", "percent_male", "percent_female", "total_households", "avg_household_size")
+
+summary(data[, variables])
+```
+
+### Histogram of Each Variable
+
+```{r}
+# histograms
+par(mfrow = c(2, length(variables) / 2))
+for (variable in variables) {
+  hist(data[, variable], main = paste(variable, "Histogram"), xlab = variable)
+}
+```
+
+### ECDF of Each Variable
+
+```{r}
+# ECDFs
+par(mfrow = c(2, length(variables) / 2))
+for (variable in variables) {
+  plot(ecdf(data[, variable]), main = paste(variable, "ECDF"))
+}
+```
+
+### Scatterplot of Each Variable (Individual)
+
+```{r}
+# scatterplots
+par(mfrow = c(2, length(variables) / 2))
+for (variable in variables) {
+  plot(data[, variable], main = paste(variable, "Scatterplot"), ylab = variable)
+}
+```
+
+### Scatterplot of Each Variable (Pair-wise)
+
+```{r}
+# scatterplots (pair-wise)
+pairs(data[, variables], main = "Pair-wise Scatter Plots")
+```
+
+### Bubble Plot of Each Variable
+
+```{r}
+library(sp)
+```
+
+```{r}
+# bubble plots of each variable
+
+coordinates(data) <- ~ longitude + latitude
+
+bubble(data, "population", maxsize = 1, main = "Population", xlab = "Longitude", ylab = "Latitude")
+
+bubble(data, "median_age", maxsize = 1, main = "Median Age", xlab = "Longitude", ylab = "Latitude")
+
+bubble(data, "percent_male", maxsize = 1, main = "Percent Male", xlab = "Longitude", ylab = "Latitude")
+
+bubble(data, "percent_female", maxsize = 1, main = "Percent Female", xlab = "Longitude", ylab = "Latitude")
+
+bubble(data, "total_households", maxsize = 1, main = "Total Households", xlab = "Longitude", ylab = "Latitude")
+
+bubble(data, "avg_household_size", maxsize = 1, main = "Average Household Size", xlab = "Longitude", ylab = "Latitude")
+
+# revert to regular dataframe
+data <- as.data.frame(data)
+```
+
+### H-scatterplot of Each Variable
+
+```{r}
+library(gstat)
+```
+
+```{r}
+# h-scatter plots of each variable
+
+# convert to spatial dataframe object
+coordinates(data) <-  ~ longitude + latitude
+
+# compute max distance between coordinates of the dataset
+max_distance <- max(dist(coordinates(data)))
+
+# compute sequence of h-values to plot with
+h <- seq(0, max_distance, length.out = 10)
+
+hscat(population ~ 1, data, h)
+
+hscat(median_age ~ 1, data, h)
+
+hscat(percent_male ~ 1, data, h)
+
+hscat(percent_female ~ 1, data, h)
+
+hscat(total_households ~ 1, data, h)
+
+hscat(avg_household_size ~ 1, data, h)
+
+# convert back to regular dataframe
+data <- as.data.frame(data)
+```
+
+## Variogram Modeling
+
+### Fitting a Model to the Empirical Semivariogram (Classical)
+
+#### Computing the Empirical Semivariogram (Classical)
+
+```{r}
+library(geoR)
+```
+
+```{r}
+# create dataframe of just coordinates and target variable
+target_variable <- "population"
+target_data <- data[, c("longitude", "latitude", target_variable)]
+head(target_data)
+```
+
+```{r}
+# set target variable and create geodata object
+geo_data <- as.geodata(target_data)
+```
+
+```{r}
+# compute empirical semivariogram (classical)
+empirical_semivariogram_c <- variog(geo_data, max.dist = 1.7)
+plot(empirical_semivariogram_c)
+```
+
+#### Fitting a Spherical Model
+
+```{r}
+# fitting a model to the empirical semivariogram (classical) - spherical
+plot(empirical_semivariogram_c)
+
+cov_model <- "sph"
+cov_pars <- c(3*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting by eye
+lines.variomodel(cov.model = cov_model, cov.pars = cov_pars, nugget = nugget)
+
+# fitting using equal weights
+equal_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "equal", fix.nugget = FALSE, nugget = nugget)
+
+lines(equal_weights_model, lty = 1, col = "red")
+
+# fitting using npairs weights
+npairs_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "npairs", fix.nugget = FALSE, nugget = nugget)
+
+lines(npairs_weights_model, lty = 1, col = "blue")
+
+# fitting using cressie's weights
+cressies_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "cressie", fix.nugget = FALSE, nugget = nugget)
+
+lines(cressies_weights_model, lty = 1, col = "green")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("By Eye", "Equal Weights", "Npairs", "Cressie"),
+  col = c("black", "red", "blue", "green"),
+  lty = 1
+)
+```
+
+```{r}
+# fitting a model using MLE - spherical
+# although the empirical semivariogram is not used for fitting, we would like to observe it's fit to the empirical semivariogram (classical)
+plot(empirical_semivariogram_c)
+
+cov_model <- "sph"
+cov_pars <- c(3*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting using MML
+mml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget)
+
+lines(mml_model, lty = 1, col="orange")
+
+# fitting using REML
+reml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget, lik.method = "RML")
+lines(reml_model, lty = 1, col = "purple")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("MML", "REML"),
+  col = c("orange", "purple"),
+  lty = 1
+)
+```
+
+#### Fitting an Exponential Model
+
+```{r}
+# fitting a model to the empirical semivariogram (classical) - exponential
+plot(empirical_semivariogram_c)
+
+cov_model <- "exp"
+cov_pars <- c(3*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting by eye
+lines.variomodel(cov.model = cov_model, cov.pars = cov_pars, nugget = nugget)
+
+# fitting using equal weights
+equal_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "equal", fix.nugget = FALSE, nugget = nugget)
+
+lines(equal_weights_model, lty = 1, col = "red")
+
+# fitting using npairs weights
+npairs_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "npairs", fix.nugget = FALSE, nugget = nugget)
+
+lines(npairs_weights_model, lty = 1, col = "blue")
+
+# fitting using cressie's weights
+cressies_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "cressie", fix.nugget = FALSE, nugget = nugget)
+
+lines(cressies_weights_model, lty = 1, col = "green")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("By Eye", "Equal Weights", "Npairs", "Cressie"),
+  col = c("black", "red", "blue", "green"),
+  lty = 1
+)
+```
+
+```{r}
+# fitting a model using MLE - exponential
+# although the empirical semivariogram is not used for fitting, we would like to observe it's fit to the empirical semivariogram (classical)
+plot(empirical_semivariogram_c)
+
+cov_model <- "exp"
+cov_pars <- c(3*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting using MML
+mml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget)
+
+lines(mml_model, lty = 1, col="orange")
+
+# fitting using REML
+reml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget, lik.method = "RML")
+lines(reml_model, lty = 1, col = "purple")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("MML", "REML"),
+  col = c("orange", "purple"),
+  lty = 1
+)
+```
+
+#### Fitting a Gaussian Model
+
+```{r}
+# fitting a model to the empirical semivariogram (classical) - gaussian
+plot(empirical_semivariogram_c)
+
+cov_model <- "gauss"
+cov_pars <- c(3*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting by eye
+lines.variomodel(cov.model = cov_model, cov.pars = cov_pars, nugget = nugget)
+
+# fitting using equal weights
+equal_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "equal", fix.nugget = FALSE, nugget = nugget)
+
+lines(equal_weights_model, lty = 1, col = "red")
+
+# fitting using npairs weights
+npairs_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "npairs", fix.nugget = FALSE, nugget = nugget)
+
+lines(npairs_weights_model, lty = 1, col = "blue")
+
+# fitting using cressie's weights
+cressies_weights_model <- variofit(empirical_semivariogram_c, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "cressie", fix.nugget = FALSE, nugget = nugget)
+
+lines(cressies_weights_model, lty = 1, col = "green")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("By Eye", "Equal Weights", "Npairs", "Cressie"),
+  col = c("black", "red", "blue", "green"),
+  lty = 1
+)
+```
+
+```{r}
+# fitting a model using MLE - gaussian
+# although the empirical semivariogram is not used for fitting, we would like to observe it's fit to the empirical semivariogram (classical)
+plot(empirical_semivariogram_c)
+
+cov_model <- "gauss"
+cov_pars <- c(3*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting using MML
+mml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget)
+
+lines(mml_model, lty = 1, col="orange")
+
+# fitting using REML
+reml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget, lik.method = "RML")
+lines(reml_model, lty = 1, col = "purple")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("MML", "REML"),
+  col = c("orange", "purple"),
+  lty = 1
+)
+```
+
+### Fitting a Model to the Empirical Semivariogram (Robust)
+
+#### Computing the Empirical Semivariogram (Robust)
+
+```{r}
+# compute empirical semivariogram (robust)
+empirical_semivariogram_r <- variog(geo_data, estimator.type = "modulus" , max.dist = 1.7)
+plot(empirical_semivariogram_r)
+```
+
+#### Fitting a Spherical Model
+
+```{r}
+# fitting a model to the empirical semivariogram (robust) - spherical
+plot(empirical_semivariogram_r)
+
+cov_model <- "sph"
+cov_pars <- c(4*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting by eye
+lines.variomodel(cov.model = cov_model, cov.pars = cov_pars, nugget = nugget)
+
+# fitting using equal weights
+equal_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "equal", fix.nugget = FALSE, nugget = nugget)
+
+lines(equal_weights_model, lty = 1, col = "red")
+
+# fitting using npairs weights
+npairs_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "npairs", fix.nugget = FALSE, nugget = nugget)
+
+lines(npairs_weights_model, lty = 1, col = "blue")
+
+# fitting using cressie's weights
+cressies_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "cressie", fix.nugget = FALSE, nugget = nugget)
+
+lines(cressies_weights_model, lty = 1, col = "green")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("By Eye", "Equal Weights", "Npairs", "Cressie"),
+  col = c("black", "red", "blue", "green"),
+  lty = 1
+)
+```
+
+```{r}
+# fitting a model using MLE - spherical
+# although the empirical semivariogram is not used for fitting, we would like to observe it's fit to the empirical semivariogram (robust)
+
+plot(empirical_semivariogram_r)
+
+cov_model <- "sph"
+cov_pars <- c(4*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting using MML
+mml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget)
+
+lines(mml_model, lty = 1, col="orange")
+
+# fitting using REML
+reml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget, lik.method = "RML")
+lines(reml_model, lty = 1, col = "purple")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("MML", "REML"),
+  col = c("orange", "purple"),
+  lty = 1
+)
+```
+
+#### Fitting an Exponential Model
+
+```{r}
+# fitting a model to the empirical semivariogram (robust) - exponential
+plot(empirical_semivariogram_r)
+
+cov_model <- "exp"
+cov_pars <- c(4*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting by eye
+lines.variomodel(cov.model = cov_model, cov.pars = cov_pars, nugget = nugget)
+
+# fitting using equal weights
+equal_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "equal", fix.nugget = FALSE, nugget = nugget)
+
+lines(equal_weights_model, lty = 1, col = "red")
+
+# fitting using npairs weights
+npairs_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "npairs", fix.nugget = FALSE, nugget = nugget)
+
+lines(npairs_weights_model, lty = 1, col = "blue")
+
+# fitting using cressie's weights
+cressies_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "cressie", fix.nugget = FALSE, nugget = nugget)
+
+lines(cressies_weights_model, lty = 1, col = "green")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("By Eye", "Equal Weights", "Npairs", "Cressie"),
+  col = c("black", "red", "blue", "green"),
+  lty = 1
+)
+```
+
+```{r}
+# fitting a model using MLE - exponential
+# although the empirical semivariogram is not used for fitting, we would like to observe it's fit to the empirical semivariogram (robust)
+
+plot(empirical_semivariogram_r)
+
+cov_model <- "exp"
+cov_pars <- c(4*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting using MML
+mml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget)
+
+lines(mml_model, lty = 1, col="orange")
+
+# fitting using REML
+reml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget, lik.method = "RML")
+lines(reml_model, lty = 1, col = "purple")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("MML", "REML"),
+  col = c("orange", "purple"),
+  lty = 1
+)
+```
+
+#### Fitting a Gaussian Model
+
+```{r}
+# fitting a model to the empirical semivariogram (robust) - gaussian
+plot(empirical_semivariogram_r)
+
+cov_model <- "gaussian"
+cov_pars <- c(4*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting by eye
+lines.variomodel(cov.model = cov_model, cov.pars = cov_pars, nugget = nugget)
+
+# fitting using equal weights
+equal_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "equal", fix.nugget = FALSE, nugget = nugget)
+
+lines(equal_weights_model, lty = 1, col = "red")
+
+# fitting using npairs weights
+npairs_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "npairs", fix.nugget = FALSE, nugget = nugget)
+
+lines(npairs_weights_model, lty = 1, col = "blue")
+
+# fitting using cressie's weights
+cressies_weights_model <- variofit(empirical_semivariogram_r, cov.model = cov_model, ini.cov.pars = cov_pars, weights = "cressie", fix.nugget = FALSE, nugget = nugget)
+
+lines(cressies_weights_model, lty = 1, col = "green")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("By Eye", "Equal Weights", "Npairs", "Cressie"),
+  col = c("black", "red", "blue", "green"),
+  lty = 1
+)
+```
+
+```{r}
+# fitting a model using MLE - gaussian
+# although the empirical semivariogram is not used for fitting, we would like to observe it's fit to the empirical semivariogram (robust)
+
+plot(empirical_semivariogram_r)
+
+cov_model <- "gauss"
+cov_pars <- c(4*10^8, 1.4)
+nugget <- 4*10^8
+
+# fitting using MML
+mml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget)
+
+lines(mml_model, lty = 1, col="orange")
+
+# fitting using REML
+reml_model <- likfit(geo_data, cov.model = cov_model, ini.cov.pars = cov_pars,
+       fix.nugget = FALSE, nugget = nugget, lik.method = "RML")
+lines(reml_model, lty = 1, col = "purple")
+
+# legend
+legend(
+  "bottomright",
+  legend = c("MML", "REML"),
+  col = c("orange", "purple"),
+  lty = 1
+)
+```
+
+## Spatial Prediction
+
+### Predictions on a dense grid using the inverse distance interpolation method
+
+```{r}
+# create grid
+x_min <- min(target_data$longitude)
+x_max <- max(target_data$longitude)
+y_min <- min(target_data$latitude)
+y_max <- max(target_data$latitude)
+
+x_values <- seq(x_min, x_max, length.out = 100)
+y_values <- seq(y_min, y_max, length.out = 100)
+
+xy_grid <- expand.grid(longitude = x_values, latitude = y_values)
+
+coordinates(xy_grid) <- ~ longitude + latitude
+
+# plot grid
+plot(xy_grid)
+
+# plot locations of observed data on the grid
+points(target_data)
+```
+
+```{r}
+# predict data points using grid as input
+idw_pred <- idw(formula = population ~ 1, locations = ~ longitude + latitude, target_data, xy_grid)$var1.pred
+
+# convert vector to matrix
+idw_pred_matrix <- matrix(idw_pred, length(x_values), length(y_values))
+
+# plot predicted values
+image(x_values, y_values, idw_pred_matrix, xlab = "East to West", ylab = "South to North")
+
+# plot locations of observed data on the grid
+points(target_data)
+```
+
+### Predictions using different types of kriging
+
+```{r}
+# variogram model to use for kriging
+model <- equal_weights_model
+```
+
+#### Simple Kriging
+
+```{r}
+# simple kriging
+simple_krig <- krige.conv(geo_data, locations = as.data.frame(xy_grid), krige = krige.control(type.krige = "sk", obj.model = model))
+
+head(simple_krig$predict)
+```
+
+#### Ordinary Kriging
+
+```{r}
+# ordinary kriging
+ordinary_krig <- krige.conv(geo_data, locations = as.data.frame(xy_grid), krige = krige.control(type.krige = "ok", obj.model = model))
+
+head(ordinary_krig$predict)
+```
+
+#### Universal Kriging
+
+```{r}
+# fit a variogram model with the assumption of trend
+
+# convert to gstat object
+g_stat <- gstat(formula = population ~ longitude + latitude, locations = ~ longitude + latitude, data = target_data)
+
+# compute empirical semivariogram
+empirical_semivariogram_trend <- variogram(g_stat, cutoff = 0.3)
+plot(empirical_semivariogram_trend)
+
+# fit a variogram model
+trend_model <- fit.variogram(empirical_semivariogram_trend, vgm(5*10^8, "Sph", 0.2, 2*10^8))
+plot(empirical_semivariogram_trend, trend_model)
+
+# universal kriging
+univ_krig <- krige(formula = population ~ longitude + latitude, locations = ~ longitude + latitude, model = trend_model, data = target_data, newdata = as.data.frame(xy_grid))
+
+head(univ_krig$var1.pred)
+```
+
+#### Co-kriging
+
+```{r}
+# compute correlation of population with each of the other variables
+variable_data <- data[, variables]
+correlations <- cor(variable_data, use = "pairwise.complete.obs")["population", ]
+correlations
+```
+
+```{r}
+# conduct co-kriging with population as the target variable and two other co-located variables: total_households and avg_household_size
+
+# create gstat object including all three variables
+g_stat <- gstat(id="population", formula = population ~ 1, locations = ~ longitude + latitude, data = data)
+g_stat <- gstat(g_stat, id = "total_households", formula = total_households ~ longitude + latitude, locations = ~ longitude + latitude, data = data)
+
+# compute and plot the semivariograms for each of the variables
+empirical_cross_semivariogram <- variogram(g_stat)
+plot(empirical_cross_semivariogram)
+
+# fit a variogram model to the sample variogram of the target variable
+g_stat_target <- gstat(id = "population", formula = population ~ 1, locations = ~ longitude + latitude, data = target_data)
+empirical_semivariogram_target <- variogram(g_stat_target, cutoff = 0.3)
+plot(empirical_semivariogram_target)
+model_target <- fit.variogram(empirical_semivariogram_target, vgm(4*10^8, "Exp", 0.2, 0), fit.method = 2)
+plot(empirical_semivariogram_target, model_target)
+
+# fit a variogram model to the sample cross-variogram
+model_cross <- fit.lmc(empirical_cross_semivariogram, g_stat, model = model_target)
+plot(empirical_cross_semivariogram, model_cross)
+
+# co-kriging
+co_krig <- predict(model_cross, xy_grid)
+head(co_krig$population.pred)
+```
+
+### Raster Maps and add Contours, for each set of kriging predictions
+
+```{r}
+# simple kriging raster map
+prediction_matrix <- matrix(simple_krig$predict, length(x_values), length(y_values))
+image(x_values, y_values, prediction_matrix, xlab = "East to West", ylab = "South to North", main = paste("Raster Map of Simple Kriging Predictions w/ Contours"))
+contour(x_values, y_values, prediction_matrix, color = "black", add = TRUE)
+
+# ordinary kriging raster map
+prediction_matrix <- matrix(ordinary_krig$predict, length(x_values), length(y_values))
+image(x_values, y_values, prediction_matrix, xlab = "East to West", ylab = "South to North", main = paste("Raster Map of Ordinary Kriging Predictions w/ Contours"))
+contour(x_values, y_values, prediction_matrix, color = "black", add = TRUE)
+
+# universal kriging raster map
+prediction_matrix <- matrix(univ_krig$var1.pred, length(x_values), length(y_values))
+image(x_values, y_values, prediction_matrix, xlab = "East to West", ylab = "South to North", main = paste("Raster Map of Universal Kriging Predictions w/ Contours"))
+contour(x_values, y_values, prediction_matrix, color = "black", add = TRUE)
+
+# co-kriging raster map
+prediction_matrix <- matrix(co_krig$population.pred, length(x_values), length(y_values))
+image(x_values, y_values, prediction_matrix, xlab = "East to West", ylab = "South to North", main = paste("Raster Map of Co-Kriging Predictions w/ Contours"))
+contour(x_values, y_values, prediction_matrix, color = "black", add = TRUE)
+```
